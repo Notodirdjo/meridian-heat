@@ -1,0 +1,41 @@
+/* MERIDIAN HEAT — page chrome around the canvas. The game itself draws
+   everything on the canvas; this only centres it on a dark neon page. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  height: 100%;
+  background: #07070f;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: #e8e8e8;
+}
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 30%, #1b1030 0%, #07070f 65%);
+}
+#wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+}
+#game {
+  display: block;
+  background: #10131c;
+  border: 1px solid #2a2a3d;
+  border-radius: 10px;
+  box-shadow: 0 0 60px rgba(255, 45, 120, 0.18), 0 0 24px rgba(0, 0, 0, 0.6);
+  cursor: crosshair;
+  max-width: 96vw;
+  max-height: 88vh;
+}
+#help {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+  font-size: 13px;
+  color: #9aa3b2;
+}
+#help b { color: #f1c40f; font-weight: 600; }
