@@ -1,95 +1,82 @@
-# MERIDIAN HEAT
+# MERIDIAN HEAT — Open-World Crime in Port Meridian
 
-![gta6-01](https://make.fun/badge/gta6-01.svg)
-![rank](https://make.fun/badge/gta6-01/Notodirdjo/meridian-heat/rank.svg)
-![reward](https://make.fun/badge/gta6-01/Notodirdjo/meridian-heat/reward.svg)
-
-An original 2D top-down open-world crime game, built for the
-[make.fun gta6-01 bounty](https://make.fun/bounty/gta6-01).
-https://make.fun/r/bqq5g77j
-
-## The game
+[![Play the game](https://img.shields.io/badge/play-in%20your%20browser-brightgreen)](https://notodirdjo.github.io/meridian-heat/game/)
+[![three.js](https://img.shields.io/badge/3D-three.js%20r160-blue)](https://threejs.org/)
+[![No build step](https://img.shields.io/badge/build-none%20—%20static%20files-orange)](#how-to-run)
 
 Vex Marlowe is back in Port Meridian — broke, wanted, and owed a favour by
-Rico. Explore a living city on foot and by car, steal whatever you can drive,
-outrun the Port Meridian PD, and run four story missions to take the harbour.
-
-- **Open city** — four districts (Old Town, Downtown, Marina, Harbor), a park
-  and a harbour, all explorable on foot and by car.
-- **Traffic & pedestrians** — cars with driving AI, parked cars to steal,
-  pedestrians who flee gunfire and speeding cars.
-- **Wanted level 1–5** — patrol cars that chase and ram, foot cops who chase
-  and arrest (1.4 s hold = Busted). Lay low and the heat decays.
-- **4 story missions** — First Delivery ($500, timed courier), Hot Wheels
-  ($900, steal the gold Comet Sport), Dockside Pickup ($1,500, fight the
-  crew), Harbor Showdown ($4,000, three waves + escape). Free roam after the
-  story ends.
-- **Combat** — pistol (mouse aim, click to shoot, 12-round mag, auto-reload),
-  punch (F), enemy gunmen with health bars, health pickups.
-- **HUD + minimap** — health, money, wanted stars, weapon/ammo, mission
-  objective, speed while driving, a live minimap (roads, water, player
-  heading, mission marker, flashing police) and an off-screen objective arrow.
-- **Start, pause, Wasted / Busted screens, restart, and save** — progress
-  saves to localStorage; Continue on the title screen restores it.
-- **Polish** — day/night cycle over a neon-dusk palette, skid / muzzle /
-  explosion particles, screen shake, danger vignette, mission cards, synth
-  SFX and a WebAudio synthwave loop. All art drawn in code, all sound
-  synthesized — no assets, no network, no libraries.
-
-## Controls
-
-| Key | Action |
-| --- | --- |
-| WASD / arrows | Move on foot, drive |
-| E | Enter / exit car, start mission at the marker |
-| Mouse | Aim, click to shoot |
-| F | Punch |
-| Space | Handbrake |
-| M | Mission list |
-| P | Pause |
-| R | Restart |
+Rico. Steal cars. Outrun the law. Six story missions, a crew of three, and
+a whole sunset city to take. A low-poly third-person open-world crime game
+in three.js, made for the [make.fun](https://make.fun/r/bqq5g77j) GTA 6
+bounty. Every street, name and sound is original — no Rockstar content.
 
 ## How to run
 
-No build step. Serve `game/` with any static server and open `index.html`:
+No build step, no install, no network at runtime. Serve the `game/`
+folder with any static server and open `index.html`:
 
 ```sh
-node serve.ts   # serves game/ at http://localhost:8080
+cd game && python3 -m http.server 8000
+# open http://localhost:8000/
 ```
 
-Or: `python3 -m http.server -d game 8080`.
+## Controls
 
-## Screenshots
+| Input | Action |
+|---|---|
+| WASD / arrows | Move on foot, drive in a car |
+| Mouse drag | Orbit camera · Mouse click | Shoot |
+| E | Enter / exit car · Start mission / race at a marker |
+| Space | Jump on foot · Handbrake while driving |
+| F | Punch · R | Reload · 1 / 2 / 3 | Fists / Pistol / SMG |
+| Z / X / C | Crew: Rico swap plates · Lena quick fix · Captain eyes out |
+| Q | Radio station (Sunset FM 89.1 · Meridian Heat 104.7 · Koral Jazz 92.5) |
+| M | Mission list · P / Esc | Pause |
 
-Staged from real game states with `?shot=title|drive|mission|combat&seed=N`
-(see `shots.json`).
+## Features
 
-## Tech
+- **A living city** — procedural low-poly Port Meridian: 70+ buildings with
+  lit windows, roads and traffic, pedestrians, a park, docks and palms,
+  all under a gradient sunset sky.
+- **Six staged story missions** — First Delivery, Hot Wheels, Dockside
+  Pickup, Harbor Showdown, Meridian GP and The Last Drop, with named
+  stages, in-mission dialogue, timers and S/A/B ratings.
+- **Wanted system** — 1–5 stars, named KPD units with roles (pursuit,
+  ramming, flanking), foot cops with an arrest hold, radio chatter, and a
+  police helicopter at 4+ stars.
+- **Progression** — five ranks (Rookie → Kingpin) with RP, district
+  reputation (Wary / Neutral / Friendly — friendly locals hide you), and
+  a completion percentage across eight categories.
+- **Side content** — 12 Golden Anchors, 3 street races, 5 stunt jumps, a
+  5-car export list, health and armour pickups.
+- **Crew** — recruit Rico, Lena and the Captain through the story and call
+  on their abilities.
+- **Saves** — autosave plus three manual slots, with a tabbed pause menu
+  (map, story, stats, crew, save) and a clickable minimap waypoint.
 
-Vanilla JavaScript + Canvas 2D, ES modules, no dependencies. Source layout:
+## Layout
 
-- `game/js/main.js` — boot, loop, state machine
-- `game/js/config.js` — tuning + shared state
-- `game/js/world.js` — city generation
-- `game/js/entities.js` — player, cars, traffic AI, peds, police, wanted
-- `game/js/missions.js` — the four story missions
-- `game/js/combat.js` — shooting, punching, gunmen, pickups
-- `game/js/audio.js` — WebAudio SFX + synthwave loop
-- `game/js/render.js` — camera + world drawing
-- `game/js/ui.js` — HUD, minimap, screens
-- `game/js/input.js` — keyboard / mouse
-- `game/js/save.js` — localStorage save / continue
-- `game/js/shots.js` — staged screenshot states
-
-`main.ts` (Node 22, stdlib only) copies `game/` and `screenshots/` to
-`/output` and writes `/output/dossier.json` via `buildDossier` from
-`vendor/makefun-game.ts`:
-
-```sh
-mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+```
+game/
+  index.html          page shell: title, HUD, pause, end screens
+  css/style.css       all styling
+  js/config.js        tuning constants + the shared game state
+  js/world.js         three.js scene, procedural city, beacons, particles
+  js/actors.js        player character, camera, pedestrians
+  js/vehicles.js      cars, traffic, entering/exiting, arcade driving
+  js/radio.js         WebAudio synth: 3 stations + sound effects
+  js/save.js          localStorage slots + autosave
+  js/progression.js   ranks, RP, reputation, ratings, career stats
+  js/crew.js          Rico / Lena / Captain abilities
+  js/combat.js        weapons, tracers, gunmen, damage, wanted
+  js/police.js        wanted levels, pursuit, arrest, helicopter
+  js/depth.js         anchors, stunt jumps, pickups
+  js/missions.js      story missions, races, export list, beacon
+  js/ui.js            HUD, minimap, pause tabs, title wiring
+  js/main.js          boot, input, game loop
+  vendor/three.module.min.js   three.js r160 (MIT), vendored
+main.ts               entrypoint: builds /output + dossier.json
 ```
 
-## License
-
-MIT — see `LICENSE`. Everything in this game is original: no Rockstar or
-other commercial game content of any kind.
+Test aids: `?low=1` disables shadows and antialiasing, `?ts=N` runs game
+time N times faster.
