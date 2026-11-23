@@ -1,3 +1,6 @@
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/Notodirdjo/meridian-heat/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/Notodirdjo/meridian-heat/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 # MERIDIAN HEAT — Open-World Crime in Port Meridian
 
 [![Play the game](https://img.shields.io/badge/play-in%20your%20browser-brightgreen)](https://notodirdjo.github.io/meridian-heat/game/)
