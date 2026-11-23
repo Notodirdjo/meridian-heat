@@ -3,23 +3,111 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MERIDIAN HEAT — an original open-world crime game</title>
+<title>MERIDIAN HEAT — Port Meridian</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<div id="wrap">
-  <canvas id="game" width="1280" height="720"></canvas>
-  <div id="help">
-    <span><b>WASD</b> move / drive</span>
-    <span><b>E</b> enter &amp; exit car</span>
-    <span><b>Mouse</b> aim &middot; <b>click</b> shoot</span>
-    <span><b>F</b> punch</span>
-    <span><b>Space</b> handbrake</span>
-    <span><b>M</b> missions</span>
-    <span><b>P</b> pause</span>
-    <span><b>R</b> restart</span>
+<canvas id="game-canvas"></canvas>
+
+<div id="title-screen">
+  <div class="title-inner">
+    <h1>MERIDIAN HEAT</h1>
+    <p class="subtitle">AN ORIGINAL OPEN-WORLD CRIME STORY &middot; PORT MERIDIAN</p>
+    <p class="story">Vex Marlowe is back in town &mdash; broke, wanted, and owed a favour by Rico.<br>Steal cars. Outrun the law. Six story missions, a crew, and a city to take.</p>
+    <p class="controls">WASD / arrows &mdash; move &amp; drive &nbsp;&middot;&nbsp; E &mdash; enter / exit car &nbsp;&middot;&nbsp; Mouse &mdash; look, click &mdash; shoot<br>F &mdash; punch &nbsp;&middot;&nbsp; 1/2/3 &mdash; weapons &nbsp;&middot;&nbsp; Z/X/C &mdash; crew &nbsp;&middot;&nbsp; Q &mdash; radio &nbsp;&middot;&nbsp; M &mdash; missions &nbsp;&middot;&nbsp; P &mdash; pause</p>
+    <button id="btn-start" class="btn-gold">START GAME</button>
+    <button id="btn-continue" class="btn-dark" hidden>CONTINUE</button>
+    <div id="slot-chips"></div>
+    <p class="footnote">No Rockstar content &mdash; every street, name and sound is original.<br>v3.0 &middot; 3D &middot; sound on for the synthwave</p>
   </div>
 </div>
+
+<div id="hud" hidden>
+  <div id="hud-player" class="panel">
+    <div id="player-name">VEX MARLOWE</div>
+    <div class="bar-row"><span>HEALTH</span><div class="bar"><div id="health-fill" class="fill health"></div></div><span id="health-num">100</span></div>
+    <div class="bar-row"><span>ARMOUR</span><div class="bar"><div id="armour-fill" class="fill armour"></div></div><span id="armour-num">0</span></div>
+    <div id="district-line">OLD TOWN &middot; 50 NEUTRAL</div>
+  </div>
+  <div id="hud-rank" class="panel">
+    <span id="rank-name">RANK 1 &middot; ROOKIE</span>
+    <div class="bar rp"><div id="rp-fill" class="fill rp"></div></div>
+    <span id="rp-num">0 / 500 RP</span>
+  </div>
+  <div id="hud-right" class="panel">
+    <div class="top-line"><span id="clock">19:40</span><span id="money">$250</span></div>
+    <div id="stars"></div>
+    <div id="kpd-panel" hidden>
+      <div id="kpd-title">KPD RESPONSE</div>
+      <div id="kpd-units"></div>
+      <div id="kpd-chatter"></div>
+    </div>
+  </div>
+  <div id="minimap-wrap" class="panel"><canvas id="minimap" width="220" height="172"></canvas><span id="minimap-n">N</span></div>
+  <div id="hud-right-bottom">
+    <div id="hud-radio" class="panel">&♪; SUNSET FM 89.1</div>
+    <div id="crew-panel" class="panel"></div>
+    <div id="hud-weapons" class="panel">
+      <div class="wslot" id="wslot-1"><span class="wkey">1</span><span class="wname">FISTS</span><span class="wammo">&infin;</span></div>
+      <div class="wslot" id="wslot-2"><span class="wkey">2</span><span class="wname">PISTOL</span><span class="wammo">12/96</span></div>
+      <div class="wslot" id="wslot-3"><span class="wkey">3</span><span class="wname">SMG &#128274;</span><span class="wammo">&mdash;</span></div>
+    </div>
+    <div id="hud-speed" class="panel" hidden>
+      <div id="speed-num">0</div><div class="kmh">KM/H</div>
+      <div id="car-name"></div><div id="car-damage"></div>
+    </div>
+  </div>
+  <div id="mission-banner" class="panel" hidden>
+    <div class="mb-top"><span id="mission-title"></span><span id="mission-timer"></span></div>
+    <div id="mission-stage"></div>
+    <div id="mission-objective"></div>
+    <div id="mission-next"></div>
+  </div>
+  <div id="dialogue-box" class="panel" hidden><span id="dialogue-name"></span><span id="dialogue-line"></span></div>
+  <div id="toast" hidden></div>
+  <div id="mission-card" class="panel" hidden>
+    <div id="mission-card-title"></div>
+    <div id="mission-card-contact"></div>
+    <div id="mission-card-lines"></div>
+    <div id="mission-card-payout"></div>
+  </div>
+  <div id="mission-list" class="panel" hidden><div class="ml-head">MISSIONS</div><div id="mission-list-items"></div></div>
+  <div id="objective-arrow" hidden>&#9650;</div>
+  <div id="crosshair" hidden>+</div>
+  <div id="hint-bar"></div>
+</div>
+
+<div id="pause-overlay" hidden>
+  <div class="pause-box">
+    <div class="pause-head"><span>MERIDIAN HEAT</span><span id="pause-money">$250 &middot; 0 RP</span></div>
+    <div class="pause-tabs">
+      <button data-tab="map" class="ptab active">MAP</button>
+      <button data-tab="story" class="ptab">STORY</button>
+      <button data-tab="stats" class="ptab">STATS</button>
+      <button data-tab="crew" class="ptab">CREW</button>
+      <button data-tab="save" class="ptab">SAVE</button>
+    </div>
+    <div id="pause-content"></div>
+    <div class="pause-hint">ESC resume &middot; Q / E switch tab &middot; click the map to set a waypoint</div>
+  </div>
+</div>
+
+<div id="screen-wasted" class="endscreen" hidden>
+  <h2>WASTED</h2>
+  <p>Vex went down in Port Meridian.</p>
+  <button id="btn-retry-wasted" class="btn-gold">RETRY</button>
+</div>
+<div id="screen-busted" class="endscreen" hidden>
+  <h2>BUSTED</h2>
+  <p>The Port Meridian PD caught up with Vex.</p>
+  <button id="btn-retry-busted" class="btn-gold">RETRY</button>
+</div>
+<div id="screen-story" class="endscreen" hidden>
+  <h2>PORT MERIDIAN IS YOURS</h2>
+  <p>All six story missions complete. Free roam continues — the city is yours.</p>
+  <button id="btn-continue-story" class="btn-gold">KEEP PLAYING</button>
+</div>
+
 <script type="module" src="js/main.js"></script>
 </body>
 </html>
