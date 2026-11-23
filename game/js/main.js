@@ -1,383 +1,338 @@
-// MERIDIAN HEAT — main.js: boot, game loop and state machine.
-// The loop reads input during update() and only clears the edge-triggered
-// key/click sets AFTER update() has run, so every press reaches gameplay.
+import { CFG, G, clamp, dist, toast, wx, wz } from './config.js';
+import { initScene, buildWorld, updateParticles } from './world.js';
+import { spawnPlayer, updatePlayer, updateCamera, spawnPeds, updatePeds } from './actors.js';
+import { spawnTraffic, spawnParked, updateCars, nearestCar, enterCar, exitCar, removeCar } from './vehicles.js';
+import { initRadio, resumeRadio, cycleStation, STATIONS } from './radio.js';
+import { saveGame, loadGame, readSave, slotInfo, autosaveTick, deleteSave } from './save.js';
+import { startMission, updateMission, updateRace, updateExports, nextMissionDef, missionAvailable, nearestRaceStart, startRace, pickExportTarget, updateBeacon, missionMarkerPos } from './missions.js';
+import { firePistol, punch, startReload, switchWeapon, updateCombat, clearGunmen, clearBullets } from './combat.js';
+import { updatePolice, clearPolice } from './police.js';
+import { useCrewAbility, updateCrew } from './crew.js';
+import { initDepth, updateDepth } from './depth.js';
+import { updateHUD, updatePause, updateEndScreens, renderTitleSlots, renderPauseTab, initUI } from './ui.js';
 
-import { CFG, G, clamp, dist, angleTo, lerp, toast } from './config.js';
-import { buildWorld, resolveBuildingCollision } from './world.js';
-import { initInput, wasPressed, moveAxis } from './input.js';
-import { renderWorld, setCtx as setRenderCtx, nightFactor } from './render.js';
-import {
-  drawHUD, drawTitle, drawPaused, drawWasted, drawBusted, drawStoryComplete,
-  drawMissionList, drawMissionCard, drawHintBar, setCtx as setUiCtx,
-} from './ui.js';
-import {
-  spawnPlayer, spawnTrafficAndParked, spawnPeds, updateCars, updatePeds,
-  updatePolice, updateParticles, nearestCar, enterCar, exitCar, addWanted,
-  damagePlayer,
-} from './entities.js';
-import { firePistol, startReload, punch, updateBullets } from './combat.js';
-import { MISSIONS, startMission, updateMission, missionMarkerPos, nextMissionDef, missionAvailable } from './missions.js';
-import { initAudio, updateAudio, sfx } from './audio.js';
-import { saveGame, loadSave, hasSave, applySave, clearSave } from './save.js';
-import { applyShotParams } from './shots.js';
+let jumpVel = 0;
+let orbitA = 0;
 
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-G.canvas = canvas;
-G.ctx = ctx;
-setRenderCtx(ctx);
-setUiCtx(ctx);
-
-let lastT = 0;
-let fireCd = 0;
-let autosaveTimer = 20;
-let buttons = {};
-let attractAngle = 0;
-
-function resetRun(fresh) {
-  G.cars.length = 0;
-  G.peds.length = 0;
-  G.cops.length = 0;
-  G.gunmen.length = 0;
-  G.bullets.length = 0;
-  G.particles.length = 0;
-  G.skidmarks.length = 0;
-  G.pickups.length = 0;
-  G.mission = null;
-  G.missionCard = null;
-  G.toast = null;
-  G.health = 100;
-  G.wanted = 0;
-  G.lastCrime = -999;
-  G.ammo = CFG.PISTOL_MAG;
-  G.reserveAmmo = CFG.PISTOL_RESERVE;
-  G.reloading = 0;
-  G.storyDone = false;
-  // A fresh run resets money and missions; a restart (R) mid-run keeps
-  // the player's earnings and completed missions — respawn, not wipe.
-  if (fresh) {
-    G.money = 250;
-    G.missionsDone = [];
-    G.stats = { shotsFired: 0, carsStolen: 0, pedsDown: 0, copsDown: 0 };
-  }
-  buildWorld(G.seed);
-  spawnPlayer();
-  const rng = G.world.rng;
-  spawnTrafficAndParked(rng);
-  spawnPeds(rng);
-  for (const hs of G.world.healthSpots) G.pickups.push({ x: hs.x, y: hs.y, kind: 'health', t: 0 });
-  G.camera.x = G.player.x;
-  G.camera.y = G.player.y;
-  autosaveTimer = 20;
-}
-
-function startGame(useSave) {
-  initAudio();
-  if (useSave) {
-    const data = loadSave();
-    resetRun(false);
-    if (data) {
-      applySave(data);
-      toast('Welcome back, Vex. Progress restored.');
-    }
-  } else {
-    clearSave();
-    resetRun(true);
-  }
+function beginPlay() {
+  initRadio();
+  const ts = document.getElementById('title-screen');
+  ts.hidden = true;
+  ts.style.display = 'none';
+  const hud = document.getElementById('hud');
+  hud.hidden = false;
+  hud.style.display = '';
   G.state = 'playing';
-  sfx.click();
 }
 
-function updatePlayerOnFoot(dt) {
-  const p = G.player;
-  const mv = moveAxis();
-  const len = Math.hypot(mv.x, mv.y) || 1;
-  p.x += (mv.x / len) * CFG.PLAYER_SPEED * dt * (mv.x || mv.y ? 1 : 0);
-  p.y += (mv.y / len) * CFG.PLAYER_SPEED * dt * (mv.x || mv.y ? 1 : 0);
-  if (mv.x || mv.y) p.angle = Math.atan2(mv.y, mv.x);
-  // Knockback decay.
-  p.x += p.knockX * dt; p.y += p.knockY * dt;
-  p.knockX *= (1 - 6 * dt); p.knockY *= (1 - 6 * dt);
-  p.x = clamp(p.x, 30, CFG.WORLD_W - 30);
-  p.y = clamp(p.y, 30, CFG.WORLD_H - 30);
-  // Buildings are solid on foot too — slide along their walls.
-  resolveBuildingCollision(p, CFG.PLAYER_RADIUS);
-  // Aim at the mouse.
-  G.aimAngle = angleTo(p.x, p.y, G.mouse.wx, G.mouse.wy);
-  if (mv.x || mv.y) p.angle = G.aimAngle;
-  // Firing (hold to fire, 0.22 s between shots).
-  fireCd -= dt;
-  if (G.mouse.down && fireCd <= 0) {
-    firePistol();
-    fireCd = 0.22;
+function clearMissionCars() {
+  for (let i = G.cars.length - 1; i >= 0; i--) {
+    const c = G.cars[i];
+    if (c.name === 'Marlow Hauler') removeCar(c);
   }
-  if (wasPressed('KeyF')) punch();
-  // Reload is automatic when the magazine empties (R is restart).
-  if (G.reloading > 0) {
-    G.reloading -= dt;
-    if (G.reloading <= 0) {
-      const need = CFG.PISTOL_MAG - G.ammo;
-      const take = Math.min(need, G.reserveAmmo);
-      G.ammo += take;
-      G.reserveAmmo -= take;
-    }
-  }
-  G.punchCooldown = Math.max(0, G.punchCooldown - dt);
-  G.punchTimer = Math.max(0, G.punchTimer - dt);
-  p.invuln = Math.max(0, p.invuln - dt);
 }
 
-function updatePlaying(dt) {
+function resetRun() {
+  clearPolice();
+  clearGunmen();
+  clearBullets();
+  clearMissionCars();
   const p = G.player;
-  // Mission intro card freezes the world until dismissed.
-  if (G.missionCard) {
-    G.missionCard.t -= dt;
-    if (G.missionCard.t <= 0 || wasPressed('KeyE') || G.mouse.clicked) G.missionCard = null;
-    return;
+  if (p && p.car) {
+    p.car.kind = 'parked';
+    p.car.driver = null;
+    p.car = null;
   }
-  // Mission list overlay.
-  if (wasPressed('KeyM') || wasPressed('Escape')) {
-    G.missionListOpen = !G.missionListOpen;
-    sfx.click();
-    return;
+  G.time = 0; G.dayTime = 0.32;
+  G.money = 250; G.health = 100; G.armour = 0;
+  G.wanted = 0; G.highestWanted = 0; G.lastCrime = -999; G.decayTimer = 0; G.policeSpawnTimer = 1.6;
+  G.weapon = 'pistol'; G.ammo = 12; G.reserveAmmo = 96;
+  G.smgAmmo = 0; G.smgReserve = 0; G.smgUnlocked = false;
+  G.reloading = 0; G.punchTimer = 0; G.punchCooldown = 0;
+  G.rp = 0;
+  for (const k of Object.keys(G.rep)) G.rep[k] = 50;
+  for (const k of Object.keys(G.crew)) { G.crew[k].recruited = false; G.crew[k].cd = 0; G.crew[k].uses = 0; }
+  G.anchorsFound = 0;
+  for (const a of G.anchors) a.found = false;
+  G.ratings = {};
+  G.racesWon = 0; G.racesDone = []; G.race = null;
+  G.jumpsDone = 0; G.jumpsFound = [];
+  G.exportsDone = 0; G.exportsDelivered = []; G.exportTarget = null;
+  G.dialogue = null; G.radioStation = 0; G.waypoint = null; G.eyesOutTimer = 0; G.heli = null;
+  G.missionDamage = 0; G.missionStartTime = 0; G.playtime = 0; G.pauseTab = 'map';
+  G.mission = null; G.missionsDone = []; G.storyDone = false;
+  G.missionCard = null; G.toast = null; G.missionListOpen = false;
+  for (const k of Object.keys(G.stats)) G.stats[k] = 0;
+  for (const pk of G.pickups) { pk.taken = false; pk.t = 0; }
+  if (p) {
+    p.x = G.world.spawn.x; p.y = G.world.spawn.y;
+    p.angle = -Math.PI / 2; p.speed = 0; p.airborne = 0; p.invuln = 0;
+    p.rig.group.visible = true;
+    p.rig.group.position.set(wx(p.x), 0, wz(p.y));
+    G.cam.yaw = p.angle;
+    G.cam.off = 0;
   }
-  if (G.missionListOpen) return;
-  // Pause.
-  if (wasPressed('KeyP')) {
-    G.state = 'paused';
-    sfx.click();
-    return;
-  }
-  if (wasPressed('KeyR')) {
-    resetRun(false);
-    G.state = 'playing';
-    toast('Run restarted.');
-    return;
-  }
+  jumpVel = 0;
+  pickExportTarget();
+  initDepth();
+}
 
-  // Day/night cycle.
-  G.dayTime = (G.dayTime + dt / CFG.DAY_LENGTH) % 1;
+function loadSlot(slot) {
+  clearPolice();
+  clearGunmen();
+  clearBullets();
+  if (!loadGame(slot)) return false;
+  const p = G.player;
+  if (p) {
+    G.cam.yaw = p.angle;
+    G.cam.off = 0;
+    p.rig.group.position.set(wx(p.x), 0, wz(p.y));
+  }
+  if (!G.exportTarget || G.exportsDelivered.includes(G.exportTarget.name)) pickExportTarget();
+  initDepth();
+  return true;
+}
 
-  // Proximity state for hints and E.
-  G._markerPos = missionMarkerPos();
-  G._nearMarker = G._markerPos ? dist(p.x, p.y, G._markerPos.x, G._markerPos.y) < 85 : false;
-  G._nearCar = p.car ? null : nearestCar(75);
+function mostRecentSlot() {
+  let best = -1, bestT = -1;
+  for (let s = 0; s <= 3; s++) {
+    const d = readSave(s);
+    if (d && d.savedAt > bestT) { bestT = d.savedAt; best = s; }
+  }
+  return best;
+}
 
-  // E: start mission at the marker, else enter/exit car.
-  if (wasPressed('KeyE')) {
-    if (G._nearMarker && !G.mission) {
-      const next = nextMissionDef();
-      if (next && missionAvailable(next)) startMission(next);
-    } else if (p.car) {
-      exitCar();
-    } else if (G._nearCar) {
-      enterCar(G._nearCar);
+function handleInteract() {
+  const p = G.player;
+  if (!p) return;
+  if (!G.mission) {
+    const next = nextMissionDef();
+    if (next && missionAvailable(next)) {
+      const s = G.world.missionSpots[next.spot];
+      if (dist(p.x, p.y, s.x, s.y) < 130) {
+        startMission(next);
+        return;
+      }
     }
   }
-
   if (p.car) {
-    p.invuln = Math.max(0, p.invuln - dt);
+    const race = nearestRaceStart();
+    if (race) { startRace(race); return; }
+    exitCar();
+    return;
+  }
+  const car = nearestCar(p.x, p.y, 90);
+  if (car) enterCar(car);
+}
+
+function handlePlayingInput() {
+  const pr = G.pressed;
+  if (pr.has('KeyE')) handleInteract();
+  if (pr.has('Digit1')) switchWeapon(1);
+  if (pr.has('Digit2')) switchWeapon(2);
+  if (pr.has('Digit3')) switchWeapon(3);
+  if (pr.has('KeyZ')) useCrewAbility('rico');
+  if (pr.has('KeyX')) useCrewAbility('lena');
+  if (pr.has('KeyC')) useCrewAbility('captain');
+  if (pr.has('KeyQ')) cycleStation();
+  if (pr.has('KeyR')) startReload();
+  if (pr.has('KeyF')) punch();
+  if (G.mouse.clicked || G.mouse.down) firePistol();
+}
+
+function handleGlobalInput() {
+  const pr = G.pressed;
+  if (pr.has('KeyP') || pr.has('Escape')) {
+    if (G.state === 'playing') G.state = 'paused';
+    else if (G.state === 'paused') G.state = 'playing';
+    else if (G.state === 'missionlist') G.state = 'playing';
+  }
+  if (pr.has('KeyM')) {
+    if (G.state === 'playing') G.state = 'missionlist';
+    else if (G.state === 'missionlist') G.state = 'playing';
+  }
+  if (G.state === 'paused') {
+    const tabs = ['map', 'story', 'stats', 'crew', 'save'];
+    const i = tabs.indexOf(G.pauseTab);
+    if (pr.has('KeyE')) G.pauseTab = tabs[(i + 1) % tabs.length];
+    if (pr.has('KeyQ')) G.pauseTab = tabs[(i + tabs.length - 1) % tabs.length];
+  }
+}
+
+function updateJump(dt) {
+  const p = G.player;
+  if (!p) return;
+  if (p.airborne > 0 || jumpVel !== 0) {
+    jumpVel -= 26 * dt;
+    p.airborne += jumpVel * dt;
+    if (p.airborne <= 0) { p.airborne = 0; jumpVel = 0; }
+  }
+}
+
+function syncTestFields() {
+  G.camYaw = G.cam.yaw;
+  G.camera = G.cam3;
+  G.radioOn = G.radioStation !== 0;
+  G.radioStationName = G.radioStation === 0 ? '' : STATIONS[G.radioStation].name;
+  const p = G.player;
+  if (p) {
+    p.z = p.airborne || 0;
+    p.onGround = (p.airborne || 0) <= 0;
+  }
+}
+
+function titleOrbit(raw) {
+  orbitA += raw * 0.05;
+  G.cam3.position.set(Math.cos(orbitA) * 220, 95, Math.sin(orbitA) * 220);
+  G.cam3.lookAt(0, 0, 0);
+}
+
+let last = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const raw = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  const dt = raw * G._timeScale;
+  handleGlobalInput();
+  if (G.state === 'title') {
+    titleOrbit(raw);
+    updatePause();
+    updateEndScreens();
+    G.renderer.render(G.scene, G.cam3);
+  } else if (G.state === 'playing') {
+    G.time += dt;
+    G.playtime += dt;
+    G.dayTime = (G.dayTime + dt / CFG.DAY_LENGTH) % 1;
+    handlePlayingInput();
+    updatePlayer(dt);
+    updateCamera(dt);
+    updateCars(dt);
+    updatePeds(dt);
+    updatePolice(dt);
+    updateMission(dt);
+    updateRace(dt);
+    updateExports();
+    updateCombat(dt);
+    updateCrew(dt);
+    updateDepth(dt);
+    updateParticles(dt);
+    updateBeacon(dt);
+    updateJump(dt);
+    autosaveTick(dt);
+    updateHUD(dt);
+    updatePause();
+    updateEndScreens();
+    syncTestFields();
+    G.renderer.render(G.scene, G.cam3);
   } else {
-    updatePlayerOnFoot(dt);
+    updateHUD(0);
+    updatePause();
+    updateEndScreens();
+    G.renderer.render(G.scene, G.cam3);
   }
-
-  updateCars(dt);
-  updatePeds(dt);
-  updatePolice(dt);
-  updateBullets(dt);
-  updateParticles(dt);
-
-  // Mission progress; 'done' pays out and saves, 'failed' just reports.
-  if (G.mission) {
-    const result = updateMission(dt);
-    if (result === 'done') saveGame();
-  }
-
-  // Gunfire echo fades.
-  if (G.shotRecentTimer > 0) {
-    G.shotRecentTimer -= dt;
-    if (G.shotRecentTimer <= 0) G.shotRecently = false;
-  }
-
-  // Camera follows the player.
-  const tx = clamp(p.x, G.vw / 2, CFG.WORLD_W - G.vw / 2);
-  const ty = clamp(p.y, G.vh / 2, CFG.WORLD_H - G.vh / 2);
-  G.camera.x = lerp(G.camera.x, tx, clamp(6 * dt, 0, 1));
-  G.camera.y = lerp(G.camera.y, ty, clamp(6 * dt, 0, 1));
-  G.shake = Math.max(0, G.shake - 40 * dt);
-
-  // Mouse world position (for aiming).
-  G.mouse.wx = G.mouse.x + G.camera.x - G.vw / 2;
-  G.mouse.wy = G.mouse.y + G.camera.y - G.vh / 2;
-
-  // Toast timer.
-  if (G.toast) {
-    G.toast.t -= dt;
-    if (G.toast.t <= 0) G.toast = null;
-  }
-
-  // Autosave.
-  autosaveTimer -= dt;
-  if (autosaveTimer <= 0) {
-    autosaveTimer = 20;
-    saveGame();
-  }
-
-  updateAudio();
-}
-
-function updateTitle(dt) {
-  // Attract mode: the city lives behind the title.
-  attractAngle += dt * 0.02;
-  G.camera.x = 1800 + Math.cos(attractAngle) * 500;
-  G.camera.y = 1400 + Math.sin(attractAngle * 0.7) * 300;
-  G.dayTime = (G.dayTime + dt / CFG.DAY_LENGTH) % 1;
-  updateCars(dt);
-  updatePeds(dt);
-  updateParticles(dt);
-  G.mouse.wx = G.mouse.x + G.camera.x - G.vw / 2;
-  G.mouse.wy = G.mouse.y + G.camera.y - G.vh / 2;
-  if (wasPressed('Enter')) startGame(false);
-  if (G.mouse.clicked) {
-    if (buttons.start && inside(G.mouse, buttons.start)) startGame(hasSave());
-    else if (buttons.newGame && inside(G.mouse, buttons.newGame)) startGame(false);
-  }
-}
-
-function inside(m, b) {
-  return b && m.x >= b.x && m.x <= b.x + b.w && m.y >= b.y && m.y <= b.y + b.h;
-}
-
-function updatePaused(dt) {
-  if (wasPressed('KeyP') || wasPressed('Escape')) { G.state = 'playing'; sfx.click(); return; }
-  if (wasPressed('KeyR')) { resetRun(false); G.state = 'playing'; return; }
-  if (G.mouse.clicked) {
-    if (inside(G.mouse, buttons.resume)) G.state = 'playing';
-    else if (inside(G.mouse, buttons.restart)) { resetRun(false); G.state = 'playing'; }
-    else if (inside(G.mouse, buttons.quit)) { saveGame(); G.state = 'title'; }
-  }
-}
-
-function updateEndScreen(dt) {
-  // Wasted / busted / story-complete.
-  if (wasPressed('KeyR') || wasPressed('Enter') || G.mouse.clicked) {
-    if (G.state === 'story') {
-      G.state = 'playing';
-      return;
-    }
-    if (G.state === 'busted') {
-      G.money = Math.max(0, G.money - 200);
-      G.wanted = 0;
-      G.cops.length = 0;
-      G.health = 100;
-      G.player.hp = 100;
-      G.player.x = G.world.spawn.x;
-      G.player.y = G.world.spawn.y;
-      if (G.player.car) { G.player.car.driver = null; G.player.car = null; }
-      G.mission = null;
-      G.gunmen.length = 0;
-      saveGame();
-      G.state = 'playing';
-      toast('Out on bail. $200 lighter. Stay sharp.');
-    } else {
-      // Wasted: respawn fresh at the spawn point, missions kept.
-      G.health = 100;
-      G.player.hp = 100;
-      G.player.x = G.world.spawn.x;
-      G.player.y = G.world.spawn.y;
-      if (G.player.car) { G.player.car.driver = null; G.player.car = null; }
-      G.mission = null;
-      G.gunmen.length = 0;
-      G.wanted = 0;
-      G.cops.length = 0;
-      saveGame();
-      G.state = 'playing';
-    }
-  }
-}
-
-function update(dt) {
-  G.time += dt;
-  switch (G.state) {
-    case 'title': updateTitle(dt); break;
-    case 'playing': updatePlaying(dt); break;
-    case 'paused': updatePaused(dt); break;
-    case 'wasted':
-    case 'busted':
-    case 'story': updateEndScreen(dt); break;
-    default: break;
-  }
-  // Wasted / busted can be set mid-update by damage/arrest.
-  if ((G.state === 'wasted' || G.state === 'busted') && G.mission) {
-    G.mission = null;
-    G.gunmen.length = 0;
-  }
-}
-
-function render() {
-  ctx.clearRect(0, 0, G.vw, G.vh);
-  // The world renders behind every state (title attract mode included).
-  renderWorld();
-  switch (G.state) {
-    case 'title':
-      buttons = drawTitle(hasSave());
-      break;
-    case 'playing':
-      drawHUD();
-      drawHintBar();
-      if (G.missionCard) drawMissionCard();
-      else if (G.missionListOpen) drawMissionList();
-      break;
-    case 'paused':
-      drawHUD();
-      buttons = drawPaused();
-      break;
-    case 'wasted':
-      drawHUD();
-      buttons = drawWasted();
-      break;
-    case 'busted':
-      drawHUD();
-      buttons = drawBusted();
-      break;
-    case 'story':
-      drawHUD();
-      buttons = drawStoryComplete();
-      break;
-    default: break;
-  }
-}
-
-function frame(t) {
-  const dt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
-  lastT = t;
-  update(dt);
-  render();
-  // Edge-triggered input is cleared AFTER update() has read it — never
-  // before — so E / P / M / clicks always reach gameplay.
   G.pressed.clear();
   G.mouse.clicked = false;
-  requestAnimationFrame(frame);
+  G.mouse.dx = 0;
+  G.mouse.dy = 0;
+}
+
+function wireInput() {
+  const canvas = document.getElementById('game-canvas');
+  window.addEventListener('keydown', (ev) => {
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.code)) ev.preventDefault();
+    if (ev.repeat) return;
+    G.keys.add(ev.code);
+    G.pressed.add(ev.code);
+    resumeRadio();
+    if (ev.code === 'Space' && G.state === 'playing') {
+      const p = G.player;
+      if (p && !p.car && (p.airborne || 0) <= 0) {
+        p.airborne = 0.01;
+        jumpVel = 8;
+        p.z = 0.01;
+        p.onGround = false;
+      }
+    }
+  });
+  window.addEventListener('keyup', (ev) => G.keys.delete(ev.code));
+  window.addEventListener('blur', () => G.keys.clear());
+  window.addEventListener('mousemove', (ev) => {
+    G.mouse.dx = ev.movementX || 0;
+    G.mouse.dy = ev.movementY || 0;
+    G.mouse.x = ev.clientX;
+    G.mouse.y = ev.clientY;
+  });
+  canvas.addEventListener('mousedown', (ev) => {
+    if (ev.button !== 0) return;
+    G.mouse.down = true;
+    G.mouse.clicked = true;
+    G.mouse.x = ev.clientX;
+    G.mouse.y = ev.clientY;
+    resumeRadio();
+  });
+  window.addEventListener('mouseup', (ev) => {
+    if (ev.button !== 0) return;
+    G.mouse.down = false;
+  });
 }
 
 function boot() {
   const params = new URLSearchParams(window.location.search);
-  const seed = parseInt(params.get('seed') || '7', 10) || 7;
-  G.seed = seed;
-  // Fit the canvas to its display size, keeping the 1280x720 playfield.
-  const fit = () => {
-    const scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
-    canvas.style.width = Math.floor(1280 * scale) + 'px';
-    canvas.style.height = Math.floor(720 * scale) + 'px';
-  };
-  window.addEventListener('resize', fit);
-  fit();
-  initInput(canvas);
-  resetRun(true);
-  applyShotParams(params);
-  // Test/debug handle (used by the Playwright play-test, harmless in play).
+  G.lowQ = params.get('low') === '1';
+  const ts = parseFloat(params.get('ts'));
+  if (Number.isFinite(ts) && ts > 0) G._timeScale = ts;
+  G.vw = window.innerWidth;
+  G.vh = window.innerHeight;
+  initScene(document.getElementById('game-canvas'));
+  buildWorld(G.seed);
+  const p = spawnPlayer(G.world.spawn.x, G.world.spawn.y);
+  p.mesh = p.rig;
+  p.invuln = 0;
+  p.z = 0;
+  p.onGround = true;
+  spawnPeds(24);
+  spawnTraffic(14);
+  spawnParked(12);
+  pickExportTarget();
+  initDepth();
+  G.policeSpawnTimer = 1.6;
+  wireInput();
+  initUI({
+    onStart: () => { resetRun(); beginPlay(); },
+    onContinue: () => {
+      const s = mostRecentSlot();
+      if (s >= 0) loadSlot(s);
+      beginPlay();
+    },
+    onChip: (slot) => {
+      if (slotInfo(slot)) loadSlot(slot);
+      else { G.saveSlot = slot; resetRun(); }
+      beginPlay();
+    },
+    onRetry: () => {
+      if (!loadSlot(G.saveSlot)) resetRun();
+      beginPlay();
+    },
+    onStoryContinue: () => { G.state = 'playing'; },
+    onSave: (slot) => {
+      if (saveGame(slot)) toast('Game saved to slot ' + slot + '.', 3);
+      else toast('Save failed.', 3);
+      renderPauseTab();
+    },
+    onLoad: (slot) => {
+      if (loadSlot(slot)) {
+        G.state = 'playing';
+        toast('Save loaded.', 3);
+      }
+    },
+    onDelete: (slot) => { deleteSave(slot); renderPauseTab(); },
+    onResume: () => { G.state = 'playing'; },
+    onRestart: () => { resetRun(); G.state = 'playing'; },
+  });
+  renderTitleSlots();
+  G.missionMarker = missionMarkerPos;
   window.MERIDIAN = G;
-  window.MERIDIAN_MISSIONS = MISSIONS;
+  window.MERIDIAN_THREE = { renderer: G.renderer, scene: G.scene, camera: G.cam3 };
   requestAnimationFrame(frame);
 }
 
